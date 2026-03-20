@@ -33,9 +33,13 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx):
         image_info = self.images[idx]
 
+        # Make sure dataset image filepath look like this: dataset/pill_detection.v3i.coco/images/filename.jpg
         self.image_dir = os.path.join(self.dataset_dir, "images")
 
         img_path = os.path.join(self.dataset_dir, "images", image_info["file_name"])
+        if not os.path.exists(img_path):
+            raise FileNotFoundError(f"Missing: {img_path}")
+        
         img = Image.open(img_path).convert("RGB")
 
         img_id = image_info["id"]
