@@ -67,11 +67,16 @@ def match_predictions_to_targets(
 def single_test(device=None, model_path="faster_rcnn_pills.pt", image_path="test_pill.jpg"):
     # Setup model
     # Make sure to set pretrained=False and coco_model=False to load the custom trained model
+    
+    #gave me errors if i didnt have this - Thomas
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     model, weights, categories = faster_rcnn.create_model(
             num_classes=3, pretrained=False, coco_model=False, categories= ["background", "capsules", "tablets"]
         )
 
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
 
     model.to(device)
     model.eval()
@@ -133,16 +138,86 @@ def single_test(device=None, model_path="faster_rcnn_pills.pt", image_path="test
     plt.axis("off")
     plt.show()
 
+def quick_test_metrics(device=None, model_path="best_faster_rcnn.pt"):
+    #test cases (image, expected label)
+    test_cases = [
+        ("test_pill.jpg", "tablets"),
+        ("broken_pill.png", "tablets"),
+        ("capsules.jpg", "capsules"),
+        ("dog_original.png", "anomaly")
+    ]
+
+    #gave me errors if i didnt have this - Thomas
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load model
+    model, weights, categories = faster_rcnn.create_model(
+        num_classes=3,
+        pretrained=False,
+        coco_model=False,
+        categories=["background", "capsules", "tablets"]
+    )
+
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    model.to(device)
+    model.eval()
+
+    preprocess = weights.transforms()
+
+    all_y_true = []
+    all_y_pred = []
+
+    for image_path, true_label in test_cases:
+        img = Image.open(image_path).convert("RGB")
+        img_tensor = preprocess(img).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            prediction = model(img_tensor)[0]
+
+        # If no detections → anomaly
+        if len(prediction["scores"]) == 0:
+            pred_label = "anomaly"
+        else:
+            best_idx = torch.argmax(prediction["scores"])
+            score = prediction["scores"][best_idx].item()
+
+            # Confidence threshold
+            if score < 0.5:
+                pred_label = "anomaly"
+            else:
+                pred_class = prediction["labels"][best_idx].item()
+                pred_label = categories[pred_class]
+
+        all_y_true.append(true_label)
+        all_y_pred.append(pred_label)
+
+    # Compute metrics
+    accuracy = accuracy_score(all_y_true, all_y_pred)
+    precision = precision_score(all_y_true, all_y_pred, average="macro", zero_division=0)
+    recall = recall_score(all_y_true, all_y_pred, average="macro", zero_division=0)
+    macro_f1 = f1_score(all_y_true, all_y_pred, average="macro", zero_division=0)
+
+    print("Quick Test Results:")
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision (Macro): {precision:.4f}")
+    print(f"Recall (Macro): {recall:.4f}")
+    print(f"Macro F1: {macro_f1:.4f}")
+
 # Metric testing on test set for later
 def full_test(device=None, model_path="faster_rcnn_pills.pt", dataset_path="dataset\\pill_detection.v3i.coco"):
     # Test on all images in the test set
     # Return metrics like mAP, precision, recall, etc.
 
+    #gave me errors if i didnt have this - Thomas
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     model, weights, categories = faster_rcnn.create_model(
             num_classes=3, pretrained=False, coco_model=False, categories=["background", "capsules", "tablets"]
         )
 
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
 
     model.to(device)
     model.eval()
@@ -207,22 +282,12 @@ def full_test(device=None, model_path="faster_rcnn_pills.pt", dataset_path="data
     recall = recall_score(all_y_true, all_y_pred, average="macro", zero_division=0)
     macro_f1 = f1_score(all_y_true, all_y_pred, average="macro", zero_division=0)
 
-    # Test
     print(f"Test mAP: {results['map'].item():.4f}")
     print(f"Test mAP@50: {results['map_50'].item():.4f}")
     print(f"Test Accuracy: {accuracy:.4f}")
     print(f"Test Precision (Macro): {precision:.4f}")
     print(f"Test Recall (Macro): {recall:.4f}")
     print(f"Test Macro F1: {macro_f1:.4f}")
-
-    return {
-    "map": results["map"].item(),
-    "map_50": results["map_50"].item(),
-    "accuracy": accuracy,
-    "precision_macro": precision,
-    "recall_macro": recall,
-    "f1_macro": macro_f1
-}
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -231,4 +296,4 @@ if __name__ == "__main__":
     single_test(device, "best_faster_rcnn.pt", "capsules.jpg")
     single_test(device, "best_faster_rcnn.pt", "dog_original.png")
 
-    full_test(device, "best_faster_rcnn.pt", "dataset\\pill_detection.v3i.coco")
+    quick_test_metrics(device, "best_faster_rcnn.pt")
