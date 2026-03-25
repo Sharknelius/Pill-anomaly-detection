@@ -6,4 +6,4 @@ faster_rcnn.py is where the model creation code is.
 
 test.py is ran for testing the model.
 
-dataset.py is for loading and parsing datasets. 
+dataset.py is for loading and parsing datasets.

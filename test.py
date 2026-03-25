@@ -33,7 +33,7 @@ def single_test(device=None, model_path="faster_rcnn_pills.pt", image_path="test
     # Threshold for detection
     threshold = 0.1
     # Threshold for pill classification
-    true_threshold = 0.97
+    true_threshold = 0.999
     keep = predictions["scores"] >= threshold
     # Convert tensors to CPU for visualization
     boxes = predictions["boxes"][keep].cpu()
