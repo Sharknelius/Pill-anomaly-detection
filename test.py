@@ -143,7 +143,7 @@ def full_test(device=None, model_path="faster_rcnn_pills.pt"):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    single_test(device, "best_faster_rcnn.pt", "test_pill.jpg")
-    single_test(device, "best_faster_rcnn.pt", "broken_pill.png")
-    single_test(device, "best_faster_rcnn.pt", "capsules.jpg")
-    single_test(device, "best_faster_rcnn.pt", "dog_original.png")
+    single_test(device, "best_faster_rcnn0.pt", "test_pill.jpg")
+    single_test(device, "best_faster_rcnn0.pt", "broken_pill.png")
+    single_test(device, "best_faster_rcnn0.pt", "capsules.jpg")
+    single_test(device, "best_faster_rcnn0.pt", "dog_original.png")

@@ -56,9 +56,9 @@ def get_f1_score(preds, targets, iou_threshold=0.5):
     f1 = 2 * precision * recall / (precision + recall + 1e-6)
     return f1
 
-def train(model, weights, dataset_dir):
+def train(model, weights, dataset_dir, new_name):
     num_epochs = 40
-    batch_size = 16
+    batch_size = 8
     lr = 0.001
     train_losses, val_losses = [], [] # loss
     val_scores = [] # f1-score
@@ -107,7 +107,7 @@ def train(model, weights, dataset_dir):
         momentum=0.9,
         weight_decay=0.0005
     )
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
     scaler = GradScaler()
 
     # Track mAP for each epoch and save the best model
@@ -115,15 +115,15 @@ def train(model, weights, dataset_dir):
     best_map = 0.0
 
     # For early stopping
-    patience = 5
+    patience = 8
     epochs_no_improve = 0
 
     # Training
     for epoch in range(num_epochs):
-        print(f"{"*" * 20}Starting Epoch {epoch+1}/{num_epochs}{"*" * 20}")
+        print(f"{"*" * 20} Starting Epoch [{epoch+1}/{num_epochs}] {"*" * 20}")
 
-        # Unfreeze backbone after 3 epochs
-        if epoch == 3:
+        # Unfreeze backbone after 5 epochs
+        if epoch == 5:
             for param in model.backbone.parameters():
                 param.requires_grad = True
 
@@ -151,34 +151,49 @@ def train(model, weights, dataset_dir):
         train_losses.append(train_loss)
 
         # Validation
-        model.eval()
         val_loss = 0.0
         all_gts, all_preds = [], []
 
+        print("Starting Validation...")
+        # To avoid slipping modes, keep them separate for loss and inference
+        model.train() # Set to train mode to compute loss
         with torch.no_grad():
-            print("Starting Validation...")
-            with torch.autocast(device_type='cuda'):
-                for images, targets in val_loader:
-                    images = [img.to(device, non_blocking=True) for img in images]
-                    targets = [{k:v.to(device, non_blocking=True) for k,v in t.items()} for t in targets]
+            for images, targets in val_loader:
+                images = [img.to(device, non_blocking=True) for img in images]
+                targets = [{k:v.to(device, non_blocking=True) for k,v in t.items()} for t in targets]
 
-                    # Loss
-                    model.train() # Set to train mode to compute loss
+                # Loss
+                with torch.autocast(device_type='cuda'):
                     loss_dict = model(images, targets)
                     loss = sum(loss for loss in loss_dict.values())
-                    val_loss += loss.item()
 
-                    # Predictions
-                    model.eval() # Set to eval mode for inference
-                    outputs = model(images)
+                val_loss += loss.item()
 
-                    preds = [{k: v.to("cpu") for k, v in out.items()} for out in outputs]
-                    gt = [{k: v.to("cpu") for k, v in t.items()} for t in targets]
+        model.eval() # Set to eval mode for inference
+        with torch.no_grad():
+            for images, targets in val_loader:
+                images = [img.to(device, non_blocking=True) for img in images]
+                targets = [{k:v.to(device, non_blocking=True) for k,v in t.items()} for t in targets]
 
-                    all_preds.extend(preds)
-                    all_gts.extend(gt)
+                # Predictions
+                outputs = model(images)
+                # Filter outputs for confidence filtered f1-score
+                filtered_outputs = []
+                for out in outputs:
+                    keep = out["scores"] > 0.5
+                    filtered_outputs.append({
+                        "boxes": out["boxes"][keep],
+                        "labels": out["labels"][keep],
+                        "scores": out["scores"][keep],
+                    })
 
-                    metric.update(preds, gt)
+                preds = [{k: v.to("cpu") for k, v in out.items()} for out in filtered_outputs]
+                gt = [{k: v.to("cpu") for k, v in t.items()} for t in targets]
+
+                all_preds.extend(preds)
+                all_gts.extend(gt)
+
+                metric.update(preds, gt)
 
         # Metrics
         val_losses.append(val_loss / len(val_loader))
@@ -190,7 +205,7 @@ def train(model, weights, dataset_dir):
         curr_map = map_results['map'].item()
         map_scores.append(curr_map)
 
-        print(f"{"*" * 10}Epoch [{epoch+1}/{num_epochs}] metrics{"*" * 10}")
+        print(f"{"*" * 10} Epoch [{epoch+1}/{num_epochs}] metrics {"*" * 10}")
         print(f"Train Loss: {train_loss:.4f}, Validation Loss: {val_losses[-1]:.4f}")
         print(f"Validation F1-Score: {val_scores[-1]:.4f}")
 
@@ -199,7 +214,7 @@ def train(model, weights, dataset_dir):
 
         if curr_map > best_map:
             best_map = curr_map
-            torch.save(model.state_dict(), "best_faster_rcnn.pt")
+            torch.save(model.state_dict(), new_name) # Update best model name as needed
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
@@ -233,7 +248,7 @@ def train(model, weights, dataset_dir):
     plt.savefig("overall_metrics.png")
     plt.show()
 
-def start_training(load_custom, model_path, dataset_path):
+def start_training(load_custom, model_path, dataset_path, new_name):
     if load_custom: # Load the last trained model and continue training
         model, weights, categories = create_model(
             num_classes=3, pretrained=False, coco_model=False, categories= ["background", "capsules", "tablets"]
@@ -245,11 +260,11 @@ def start_training(load_custom, model_path, dataset_path):
         )
 
     dataset_dir = os.path.join(os.getcwd(), dataset_path)
-    train(model, weights, dataset_dir)
+    train(model, weights, dataset_dir, new_name)
         
 if __name__ == "__main__":
     from faster_rcnn import create_model
 
-    # Use the last trained model and train on a specific dataset stored in dataset path
+    # Use the last trained model and train on a specific dataset stored in dataset path, then save as best_faster_rcnn{n+1}.pt
     # True if using last trained model, False if using pretrained COCO model
-    start_training(True, "best_faster_rcnn.pt", "dataset\\pill_detection.v3i.coco")
+    start_training(True, "best_faster_rcnn0.pt", "dataset\\actual_pill_detection.v1i.coco", "best_faster_rcnn1.pt")
