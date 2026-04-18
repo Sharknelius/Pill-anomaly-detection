@@ -7,25 +7,40 @@ import os
 # Don't worry about this too much
 # This is how we load in the dataset and annotations for training and validation
 class CustomDataset(Dataset):
-    def __init__(self, dataset_dir, transform=None):
+    def __init__(self, dataset_dir, transform=None, labeled=True):
         self.dataset_dir = dataset_dir
         self.transform = transform
-        self.annotation_file = os.path.join(dataset_dir, "_annotations.coco.json")
+        self.labeled = labeled
 
-        with open(self.annotation_file) as f:
-            annotations = json.load(f)
+        self.image_dir = os.path.join(dataset_dir, "images")
 
-        self.images = annotations["images"]
-        self.annotations = annotations["annotations"]
-        self.categories = annotations["categories"]
+        if self.labeled:
+            self.annotation_file = os.path.join(dataset_dir, "_annotations.coco.json")
 
-        self.image_id_to_annotations = {}
+            with open(self.annotation_file) as f:
+                annotations = json.load(f)
 
-        for annotation in self.annotations:
-            image_id = annotation["image_id"]
-            if image_id not in self.image_id_to_annotations:
-                self.image_id_to_annotations[image_id] = []
-            self.image_id_to_annotations[image_id].append(annotation)
+            self.images = annotations["images"]
+            self.annotations = annotations["annotations"]
+            self.categories = annotations["categories"]
+
+            self.image_id_to_annotations = {}
+
+            for annotation in self.annotations:
+                image_id = annotation["image_id"]
+                if image_id not in self.image_id_to_annotations:
+                    self.image_id_to_annotations[image_id] = []
+                self.image_id_to_annotations[image_id].append(annotation)
+        else:
+            self.images = []
+            for i, fname in enumerate(os.listdir(self.image_dir)):
+                if fname.lower().endswith((".jpg", ".jpeg", ".png")):
+                    self.images.append({
+                        "id": i,
+                        "file_name": fname
+                    })
+
+            self.image_id_to_annotations = {}
 
     def __len__(self):
         return len(self.images)
@@ -35,31 +50,25 @@ class CustomDataset(Dataset):
 
         # Make sure dataset image filepath look like this: dataset/pill_detection.v3i.coco/images/filename.jpg
         self.image_dir = os.path.join(self.dataset_dir, "images")
-
-        img_path = os.path.join(self.dataset_dir, "images", image_info["file_name"])
+        img_path = os.path.join(self.image_dir, image_info["file_name"])
         if not os.path.exists(img_path):
             raise FileNotFoundError(f"Missing: {img_path}")
-        
         img = Image.open(img_path).convert("RGB")
 
-        img_id = image_info["id"]
+        if not self.labeled:
+            if self.transform:
+                img = self.transform(img)
+            return img, None
 
+        img_id = image_info["id"]
         anns = self.image_id_to_annotations.get(img_id, [])
 
         boxes = []
         labels = []
 
         for ann in anns:
-
             x, y, w, h = ann["bbox"]
-
-            boxes.append([
-                x,
-                y,
-                x + w,
-                y + h
-            ])
-
+            boxes.append([x, y, x + w, y + h])
             labels.append(ann["category_id"])
 
         if len(boxes) == 0:
@@ -79,3 +88,18 @@ class CustomDataset(Dataset):
             img = self.transform(img)
 
         return img, target
+    
+class MergedDataset(Dataset):
+    def __init__(self, labeled_dataset, pseudo_data):
+        self.labeled = labeled_dataset
+        self.pseudo = pseudo_data
+
+    def __len__(self):
+        return len(self.labeled) + len(self.pseudo)
+
+    def __getitem__(self, idx):
+        if idx < len(self.labeled):
+            return self.labeled[idx]
+        else:
+            img, target = self.pseudo[idx - len(self.labeled)]
+            return img, target

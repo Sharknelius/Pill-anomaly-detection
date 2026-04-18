@@ -10,7 +10,7 @@ def single_test(device=None, model_path="faster_rcnn_pills.pt", image_path="test
     # Setup model
     # Make sure to set pretrained=False and coco_model=False to load the custom trained model
     model, weights, categories = faster_rcnn.create_model(
-            num_classes=3, pretrained=False, coco_model=False, categories= ["background", "capsules", "tablets"]
+            num_classes=5, pretrained=False, coco_model=False, categories= ["background", "capsule", "damaged-pill", "foreign-matter", "tablet"]
         )
 
     model.load_state_dict(torch.load(model_path, weights_only=True))
@@ -31,9 +31,9 @@ def single_test(device=None, model_path="faster_rcnn_pills.pt", image_path="test
     # Confidence thresholding (the higher, the pickier the model is)
     # Possibly less recall but higher precision if raised
     # Threshold for detection
-    threshold = 0.1
+    threshold = 0.15
     # Threshold for pill classification
-    true_threshold = 0.999
+    true_threshold = 0.8
     keep = predictions["scores"] >= threshold
     # Convert tensors to CPU for visualization
     boxes = predictions["boxes"][keep].cpu()
@@ -58,11 +58,11 @@ def single_test(device=None, model_path="faster_rcnn_pills.pt", image_path="test
         )
         ax.add_patch(rect)
 
-        # Label as known category or anomaly based on confidence score
+        # Label as known category or unknown based on confidence score
         if score > true_threshold:
             label_name = categories[label.item()]
         else:
-            label_name = "anomaly"
+            label_name = "unknown-anomaly"
 
         ax.text(
             x1,
@@ -82,7 +82,7 @@ def full_test(device=None, model_path="faster_rcnn_pills.pt"):
     # Return metrics like mAP, precision, recall, etc.
 
     model, weights, categories = faster_rcnn.create_model(
-            num_classes=3, pretrained=False, coco_model=False, categories= ["background", "pill"]
+            num_classes=5, pretrained=False, coco_model=False, categories= ["background", "capsule", "damaged-pill", "foreign-matter", "tablet"]
         )
 
     model.load_state_dict(torch.load(model_path, weights_only=True))
@@ -130,7 +130,7 @@ def full_test(device=None, model_path="faster_rcnn_pills.pt"):
         if score >= threshold:
             label_name = categories[label.item()]
         else:
-            label_name = "Anomaly"
+            label_name = "unknown-anomaly"
 
         ax.text(
             x1,
@@ -141,9 +141,14 @@ def full_test(device=None, model_path="faster_rcnn_pills.pt"):
             backgroundcolor="blue"
         )
 
+def basic_test(model_name):
+    single_test(device, model_name, "test_pill.jpg")
+    single_test(device, model_name, "broken_pill.png")
+    single_test(device, model_name, "capsules.jpg")
+    single_test(device, model_name, "broken_tablet.jpg")
+
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    single_test(device, "best_faster_rcnn0.pt", "test_pill.jpg")
-    single_test(device, "best_faster_rcnn0.pt", "broken_pill.png")
-    single_test(device, "best_faster_rcnn0.pt", "capsules.jpg")
-    single_test(device, "best_faster_rcnn0.pt", "dog_original.png")
+    
+    basic_test("2026-04-18_15-12-48_best_frcnn.pt")
+    # basic_test("best_faster_rcnn2_full_labeled.pt")
