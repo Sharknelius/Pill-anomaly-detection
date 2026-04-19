@@ -359,7 +359,7 @@ def psuedo_label(model, unlabeled_loader, device, epoch, threshold=0.9):
 
     return pseudo_data
 
-def start_training(load_custom, model_path=None, labeled_dataset_path=None, unlabel_dataset_path=None, new_name=None, labeled=True):
+def start_training(load_custom, model_path=None, labeled_dataset_path=None, unlabel_dataset_path=None, new_name=None, not_semi=False):
     if load_custom: # Load the last trained model and continue training
         model, weights, categories = create_model(
             num_classes=5, pretrained=False, coco_model=False, categories= ["background", "capsule", "damaged-pill", "foreign-matter", "tablet"]
@@ -371,12 +371,12 @@ def start_training(load_custom, model_path=None, labeled_dataset_path=None, unla
         )
 
     labeled_dataset_dir = os.path.join(os.getcwd(), labeled_dataset_path)
-    if not labeled:
+    if not not_semi:
         unlabeled_dataset_dir = os.path.join(os.getcwd(), unlabel_dataset_path)
     else:
         unlabeled_dataset_dir = None
 
-    train(model, weights, labeled_dataset_dir, unlabeled_dataset_dir, new_name, labeled)
+    train(model, weights, labeled_dataset_dir, unlabeled_dataset_dir, new_name, not_semi)
         
 if __name__ == "__main__":
     from faster_rcnn import create_model
@@ -386,4 +386,4 @@ if __name__ == "__main__":
     
     # Use the last trained model and train on a specific dataset stored in dataset path, then save as best_faster_rcnn{n+1}.pt
     # True if using last trained model, False if using pretrained COCO model
-    start_training(True, "2026-04-18_13-16-53_best_frcnn.pt", "dataset\\Labeled_anomaly_pill.v2i.coco", "dataset\\Unlabeled_full_pill.v1i.coco", new_model_name, labeled=False)
+    start_training(True, "2026-04-18_15-12-48_best_frcnn.pt", "dataset\\Labeled_anomaly_pill.v2i.coco", "dataset\\Unlabeled_full_pill.v1i.coco", new_model_name, not_semi=False)
