@@ -44,11 +44,17 @@ def get_f1_score(preds, targets, iou_threshold=0.5):
     tp, fp, fn = 0, 0, 0
 
     for pred, tgt in zip(preds, targets):
-        if len(pred["boxes"]) == 0:
-            fn += len(tgt["boxes"])
+        pred_count = len(pred["boxes"])
+        tgt_count = len(tgt["boxes"])
+
+        if pred_count == 0 and tgt_count == 0: # If no predictions and no ground truths
             continue
-        if len(tgt["boxes"]) == 0:
-            fp += len(pred["boxes"])
+
+        if pred_count == 0: # If no predictions but there are ground truths, then all are false negatives
+            fn += tgt_count
+            continue
+        if tgt_count == 0: # If there are predictions but no ground truths, then all are false positives
+            fp += pred_count
             continue
 
         ious = box_iou(pred["boxes"], tgt["boxes"])
@@ -56,30 +62,34 @@ def get_f1_score(preds, targets, iou_threshold=0.5):
         matches = ious > iou_threshold
 
         matched_gt = set()
+        matched_pred = set()
+
+        # Get the best matches for each prediction
+        valid_matches = []
 
         # If prediction matches ground truth, then TP
         # If prediction doesn't match any ground truth (box or label), then FP
         # If ground truth doesn't match any prediction, then FN
         for i in range(matches.size(0)):
-            match_found = False
             for j in range(matches.size(1)):
-                # Check bounding box and labels to see if they match
-                if matches[i, j] and j not in matched_gt and pred["labels"][i] == tgt["labels"][j]:
-                    tp += 1
-                    matched_gt.add(j)
-                    match_found = True
+                if matches[i, j] and pred["labels"][i] == tgt["labels"][j]:
+                    valid_matches.append((ious[i, j].item(), i, j))
 
-                    break
-            if not match_found:
-                fp += 1
+        valid_matches.sort(key=lambda x: -x[0])  # Best IoU first
 
-        fn += len(tgt["boxes"]) - len(matched_gt)
+        for _, i, j in valid_matches:
+            if i not in matched_pred and j not in matched_gt:
+                tp += 1
+                matched_pred.add(i)
+                matched_gt.add(j)
 
-    precision = tp / (tp + fp + 1e-6)
-    recall = tp / (tp + fn + 1e-6)
+        fp += pred_count - len(matched_pred)
+        fn += tgt_count - len(matched_gt)
 
-    # Similar to micro F1-score, but we add a small epsilon to avoid division by zero
-    f1 = 2 * precision * recall / (precision + recall + 1e-6)
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     return f1
 
 def predict_with_aug(model, images):
@@ -225,7 +235,6 @@ def train(model, weights, labeled_dataset_dir, unlabeled_dataset_dir, new_name, 
 
         # Validation
         val_loss = 0.0
-        all_gts, all_preds = [], []
 
         print("Starting Validation...")
         # To avoid slipping modes, keep them separate for loss and inference
@@ -243,6 +252,10 @@ def train(model, weights, labeled_dataset_dir, unlabeled_dataset_dir, new_name, 
                 val_loss += loss.item()
 
         model.eval() # Set to eval mode for inference
+
+        # Reset predictions and ground truths for F1-score and mAP calculation
+        all_gts, all_preds = [], []
+
         with torch.no_grad():
             for images, targets in val_loader:
                 images = [img.to(device, non_blocking=True) for img in images]
